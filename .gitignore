@@ -1,0 +1,95 @@
+# ──────────────────────────────────────────────
+# Environment & Secrets
+# ──────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.env
+backend/.env
+frontend/.env
+benchmark/.env
+
+# ──────────────────────────────────────────────
+# Python (backend, benchmark)
+# ──────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+**/venv/
+**/.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ──────────────────────────────────────────────
+# Node.js / React / Vite (frontend)
+# ──────────────────────────────────────────────
+node_modules/
+**/node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# ──────────────────────────────────────────────
+# IDE / Editor
+# ──────────────────────────────────────────────
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ──────────────────────────────────────────────
+# Docker volumes & runtime
+# ──────────────────────────────────────────────
+docker/data/
+docker/volumes/
+*.pid
+
+# ──────────────────────────────────────────────
+# Benchmark output (giữ code, bỏ kết quả)
+# ──────────────────────────────────────────────
+benchmark/results/
+benchmark/plots/
+*.log
+
+# ──────────────────────────────────────────────
+# Dataset (file lớn, không push lên GitHub)
+# ──────────────────────────────────────────────
+data/*.csv
+data/*.parquet
+data/*.json
+!data/.gitkeep
+
+# ──────────────────────────────────────────────
+# OS / Misc
+# ──────────────────────────────────────────────
+*.bak
+*.tmp
+*.orig
+.claude/

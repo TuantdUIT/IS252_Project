@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # COORDINATOR NODE
+  # ============================================
+  coordinator:
+    image: citusdata/citus:12.1
+    container_name: vietjobs_coordinator
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vietjobs
+      POSTGRES_HOST_AUTH_METHOD: "trust"
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - coordinator_data:/var/lib/postgresql/data
+      - ../data:/data
+      - ../sql:/sql
+    networks:
+      - citus_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ============================================
+  # WORKER NODES (4)
+  # ============================================
+  worker1:
+    image: citusdata/citus:12.1
+    container_name: vietjobs_worker1_commerce
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vietjobs
+      POSTGRES_HOST_AUTH_METHOD: "trust"
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - worker1_data:/var/lib/postgresql/data
+    networks:
+      - citus_net
+
+  worker2:
+    image: citusdata/citus:12.1
+    container_name: vietjobs_worker2_tech
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vietjobs
+      POSTGRES_HOST_AUTH_METHOD: "trust"
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - worker2_data:/var/lib/postgresql/data
+    networks:
+      - citus_net
+
+  worker3:
+    image: citusdata/citus:12.1
+    container_name: vietjobs_worker3_creative
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vietjobs
+      POSTGRES_HOST_AUTH_METHOD: "trust"
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - worker3_data:/var/lib/postgresql/data
+    networks:
+      - citus_net
+
+  worker4:
+    image: citusdata/citus:12.1
+    container_name: vietjobs_worker4_people
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vietjobs
+      POSTGRES_HOST_AUTH_METHOD: "trust"
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - worker4_data:/var/lib/postgresql/data
+    networks:
+      - citus_net
+
+  # ============================================
+  # MANAGER (Citus auto-register workers)
+  # ============================================
+  manager:
+    image: citusdata/membership-manager:0.3.0
+    container_name: vietjobs_manager
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - coordinator
+    environment:
+      CITUS_HOST: coordinator
+      POSTGRES_PASSWORD: postgres
+    networks:
+      - citus_net
+
+networks:
+  citus_net:
+    driver: bridge
+
+volumes:
+  coordinator_data:
+  worker1_data:
+  worker2_data:
+  worker3_data:
+  worker4_data:
