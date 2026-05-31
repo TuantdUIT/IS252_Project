@@ -10,7 +10,7 @@ const BASE = '/api'
 // Types
 // =============================================================================
 
-type Tab = 'jobs' | 'stats' | 'cluster'
+type Tab = 'jobs' | 'stats' | 'cluster' | 'benchmark'
 
 interface PaginatedJobs {
   items: Job[]
@@ -90,6 +90,26 @@ interface DataDistribution {
   location: string
   job_count: number
 }
+
+interface BenchmarkRow {
+  algorithm: string
+  file: string
+  workload: string
+  capability: string
+  mean_ms: number
+  p95_ms: number
+  qps: number
+  speedup: number
+}
+
+const BENCHMARK_DATA: BenchmarkRow[] = [
+  { algorithm: 'Hash Join', file: '01_hash_join.sql', workload: 'Real-time analytics', capability: 'Co-located distributed joins', mean_ms: 14.756, p95_ms: 16.608, qps: 67.77, speedup: 4.792 },
+  { algorithm: 'Query Routing', file: '02_query_routing.sql', workload: 'Multi-tenant / CRUD', capability: 'Shard pruning / router planner', mean_ms: 3.363, p95_ms: 3.609, qps: 297.392, speedup: 21.025 },
+  { algorithm: 'Scatter-Gather', file: '02_query_routing.sql', workload: 'Real-time analytics', capability: 'Parallel distributed SELECT', mean_ms: 33.665, p95_ms: 50.119, qps: 29.704, speedup: 2.1 },
+  { algorithm: 'MapReduce Aggregation', file: '03_mapreduce_agg.sql', workload: 'Real-time analytics', capability: 'Worker partial aggregate and coordinator merge', mean_ms: 36.147, p95_ms: 45.009, qps: 27.665, speedup: 1.956 },
+  { algorithm: 'Semi-Join', file: '04_semi_join.sql', workload: 'Real-time analytics', capability: 'Co-located semi join', mean_ms: 14.629, p95_ms: 18.683, qps: 68.358, speedup: 4.833 },
+  { algorithm: 'Parallel Top-K', file: '05_parallel_topk.sql', workload: 'Data warehousing', capability: 'LIMIT pushdown and coordinator merge', mean_ms: 70.708, p95_ms: 107.002, qps: 14.143, speedup: 1.0 },
+]
 
 // =============================================================================
 // Helpers
@@ -678,6 +698,66 @@ function ClusterTab() {
 }
 
 // =============================================================================
+// BenchmarkTab
+// =============================================================================
+
+function BenchmarkTab() {
+  return (
+    <div>
+      <div style={s.card}>
+        <h3 style={s.ctitle}>Algorithm Benchmark</h3>
+        <div style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
+          Method: 1 warm-up run, 5 measured runs, mean latency, p95 latency, throughput, speedup.
+        </div>
+        <ResponsiveContainer width="100%" height={340}>
+          <BarChart data={BENCHMARK_DATA} margin={{ top: 10, right: 30, left: 0, bottom: 60 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="algorithm" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
+            <YAxis tick={{ fontSize: 11 }} label={{ value: 'Milliseconds', angle: -90, position: 'insideLeft', fontSize: 11 }} />
+            <Tooltip formatter={(v: number) => [`${Number(v).toFixed(3)} ms`, '']} />
+            <Legend />
+            <Bar dataKey="mean_ms" fill="#4e79a7" radius={[4, 4, 0, 0]} name="Mean latency" />
+            <Bar dataKey="p95_ms" fill="#e15759" radius={[4, 4, 0, 0]} name="p95 latency" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div style={s.card}>
+        <h3 style={s.ctitle}>Benchmark Results</h3>
+        <table style={s.table}>
+          <thead>
+            <tr>
+              <th style={s.th}>Algorithm</th>
+              <th style={s.th}>Workload</th>
+              <th style={s.th}>Capability</th>
+              <th style={s.th}>File</th>
+              <th style={s.th}>Mean</th>
+              <th style={s.th}>p95</th>
+              <th style={s.th}>QPS</th>
+              <th style={s.th}>Speedup</th>
+            </tr>
+          </thead>
+          <tbody>
+            {BENCHMARK_DATA.map(row => (
+              <tr key={row.algorithm}>
+                <td style={{ ...s.td, fontWeight: 700, color: '#1a3c5e' }}>{row.algorithm}</td>
+                <td style={s.td}>{row.workload}</td>
+                <td style={s.td}>{row.capability}</td>
+                <td style={s.td}>{row.file}</td>
+                <td style={s.td}>{row.mean_ms.toFixed(3)} ms</td>
+                <td style={s.td}>{row.p95_ms.toFixed(3)} ms</td>
+                <td style={s.td}>{row.qps.toFixed(2)}</td>
+                <td style={s.td}>{row.speedup.toFixed(2)}x</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// =============================================================================
 // App (root)
 // =============================================================================
 
@@ -703,12 +783,14 @@ export default function App() {
         <button style={navBtn(tab === 'jobs')}    onClick={() => setTab('jobs')}>Việc làm</button>
         <button style={navBtn(tab === 'stats')}   onClick={() => setTab('stats')}>Thống kê</button>
         <button style={navBtn(tab === 'cluster')} onClick={() => setTab('cluster')}>Cluster</button>
+        <button style={navBtn(tab === 'benchmark')} onClick={() => setTab('benchmark')}>Benchmark</button>
       </nav>
 
       <main style={s.main}>
         {tab === 'jobs'    && <JobsTab />}
         {tab === 'stats'   && <StatsTab />}
         {tab === 'cluster' && <ClusterTab />}
+        {tab === 'benchmark' && <BenchmarkTab />}
       </main>
     </div>
   )
