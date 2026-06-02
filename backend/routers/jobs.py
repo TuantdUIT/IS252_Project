@@ -10,6 +10,8 @@ Mọi endpoint có tham số category_group tuỳ chọn:
   Không  → Citus scatter-gather → Task Count: 4 (4 workers song song)
 """
 
+import asyncio
+import time
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from models import JobDetail, JobListItem, JobSkillItem, PaginatedJobs
@@ -98,6 +100,84 @@ async def filter_by_skill(
 # category_group bắt buộc trong URL để Citus prune về đúng 1 worker.
 # Trả về 404 nếu không tìm thấy job.
 # =============================================================================
+# =============================================================================
+# GET /jobs/benchmark — Chạy đồng thời 5 thuật toán, trả về thời gian ms
+# -----------------------------------------------------------------------------
+# asyncio.gather() chạy 5 coroutine song song trên event loop.
+# Mỗi thuật toán được đo độc lập bằng perf_counter trước/sau await.
+# Params giống /jobs/search — dùng cùng keyword/category_group/location
+# để so sánh táo với táo.
+# =============================================================================
+def _pg_lit(v) -> str:
+    """Chuyển Python value → PostgreSQL literal để dùng trong EXPLAIN ANALYZE."""
+    if v is None:
+        return "NULL"
+    if isinstance(v, str):
+        return "'" + v.replace("'", "''") + "'"
+    return str(v)
+
+
+@router.get("/benchmark")
+async def benchmark_algorithms(
+    q: str = Query(default="", description="Từ khoá tìm kiếm (để trống = toàn bộ)"),
+    category_group: Optional[int] = Query(default=None, ge=1, le=4),
+    location: Optional[str] = None,
+):
+    kw = q.strip() or "a"
+
+    # Trả về cả wall_ms (perf_counter Python) lẫn pg_ms (Execution Time PostgreSQL)
+    # để người dùng có thể đối chiếu 2 nguồn độc lập.
+    async def timed_with_pg(sql: str, query_coro):
+        t0 = time.perf_counter()
+        await query_coro
+        wall_ms = round((time.perf_counter() - t0) * 1000)
+
+        pg_ms = await db.explain_execution_time(sql)
+        return wall_ms, pg_ms
+
+    cg  = category_group
+    loc = location
+
+    results = await asyncio.gather(
+        timed_with_pg(
+            f"SELECT * FROM hash_join_search({_pg_lit(cg)}, {_pg_lit(loc)}, 20)",
+            db.query_jobs_full(cg, loc, 20),
+        ),
+        timed_with_pg(
+            f"SELECT * FROM search_jobs_keyword({_pg_lit(kw)}, {_pg_lit(cg)}, {_pg_lit(loc)})",
+            db.query_jobs_keyword(kw, cg, loc),
+        ),
+        timed_with_pg(
+            "SELECT category_group, location, COUNT(*), ROUND(AVG(salary_avg),0) FROM core GROUP BY category_group, location",
+            db.query_data_distribution(),
+        ),
+        timed_with_pg(
+            f"SELECT * FROM core WHERE ({_pg_lit(loc)}::TEXT IS NULL OR location={_pg_lit(loc)}) ORDER BY salary_avg DESC LIMIT 20",
+            db.query_jobs_list(cg, loc, 20, 1),
+        ),
+        timed_with_pg(
+            f"SELECT * FROM semi_join_jobs_with_skill({_pg_lit(kw)}, {_pg_lit(cg)}, {_pg_lit(loc)})",
+            db.query_jobs_skill(kw, cg, loc),
+        ),
+    )
+
+    algorithms = ["hash_join", "query_routing", "mapreduce", "top_k", "semi_join"]
+    workers = 1 if category_group else 4
+    tasks   = 1 if category_group else 4
+
+    return [
+        {
+            "algorithm": alg,
+            "ms":        wall_ms,
+            "pg_ms":     pg_ms,
+            "overhead_ms": wall_ms - pg_ms,
+            "workers":   workers,
+            "tasks":     tasks,
+        }
+        for alg, (wall_ms, pg_ms) in zip(algorithms, results)
+    ]
+
+
 @router.get("/{category_group}/{job_id}", response_model=JobDetail)
 async def get_job_detail(
     category_group: int,

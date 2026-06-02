@@ -275,6 +275,16 @@ function JobDetailModal({ job, onClose }: { job: JobDetail; onClose: () => void 
 // JobsTab
 // =============================================================================
 
+type AlgTime = { algorithm: string; ms: number; workers: number; tasks: number }
+
+const ALG_LABELS: Record<string, string> = {
+  hash_join:     'Hash Join',
+  query_routing: 'Query Routing',
+  mapreduce:     'MapReduce',
+  top_k:         'Top-K',
+  semi_join:     'Semi-Join',
+}
+
 function JobsTab() {
   const [mode, setMode] = useState<'list' | 'skill'>('list')
   const [keyword, setKeyword] = useState('')
@@ -289,6 +299,7 @@ function JobsTab() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
+  const [algTimes, setAlgTimes] = useState<AlgTime[]>([])
 
   const doSearch = useCallback(async (p: number) => {
     setLoading(true)
@@ -298,17 +309,27 @@ function JobsTab() {
       if (location) params.location = location
       if (catGroup) params.category_group = Number(catGroup)
 
-      if (mode === 'skill') {
-        if (!skill.trim()) { setJobs([]); setTotal(0); setTotalPages(1); setLoading(false); return }
-        const res = await axios.get<Job[]>(`${BASE}/jobs/skill`, { params: { ...params, q: skill } })
-        setJobs(res.data); setTotal(res.data.length); setTotalPages(1)
-      } else if (keyword.trim()) {
-        const res = await axios.get<Job[]>(`${BASE}/jobs/search`, { params: { ...params, q: keyword } })
-        setJobs(res.data); setTotal(res.data.length); setTotalPages(1)
-      } else {
-        const res = await axios.get<PaginatedJobs>(`${BASE}/jobs`, { params: { ...params, page: p, limit: 50 } })
-        setJobs(res.data.items); setTotal(res.data.total); setTotalPages(res.data.pages)
-      }
+      const q = mode === 'skill' ? skill.trim() : keyword.trim()
+
+      const [, benchRes] = await Promise.all([
+        (async () => {
+          if (mode === 'skill') {
+            if (!skill.trim()) { setJobs([]); setTotal(0); setTotalPages(1); return }
+            const res = await axios.get<Job[]>(`${BASE}/jobs/skill`, { params: { ...params, q: skill } })
+            setJobs(res.data); setTotal(res.data.length); setTotalPages(1)
+          } else if (keyword.trim()) {
+            const res = await axios.get<Job[]>(`${BASE}/jobs/search`, { params: { ...params, q: keyword } })
+            setJobs(res.data); setTotal(res.data.length); setTotalPages(1)
+          } else {
+            const res = await axios.get<PaginatedJobs>(`${BASE}/jobs`, { params: { ...params, page: p, limit: 50 } })
+            setJobs(res.data.items); setTotal(res.data.total); setTotalPages(res.data.pages)
+          }
+        })(),
+        axios.get<AlgTime[]>(`${BASE}/jobs/benchmark`, { params: { ...params, q: q || 'a' } })
+          .then(r => r.data).catch(() => [] as AlgTime[]),
+      ])
+
+      setAlgTimes(benchRes)
     } catch {
       setError('Không thể tải danh sách việc làm. Đảm bảo backend đang chạy.')
     } finally {
@@ -316,8 +337,9 @@ function JobsTab() {
     }
   }, [mode, keyword, skill, catGroup, location])
 
-  // Reset về trang 1 và fetch lại khi filter thay đổi
-  useEffect(() => { setPage(1); doSearch(1) }, [doSearch])
+  // Load lần đầu + auto-search khi đổi dropdown category/location
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setPage(1); doSearch(1) }, [catGroup, location])
 
   const search = () => { setPage(1); doSearch(1) }
   const handlePageChange = (p: number) => { setPage(p); doSearch(p) }
@@ -347,8 +369,8 @@ function JobsTab() {
         </div>
         <div style={s.row}>
           {mode === 'list'
-            ? <input style={s.input} placeholder="Tìm tên công việc…" value={keyword} onChange={e => setKeyword(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} />
-            : <input style={s.input} placeholder="Kỹ năng (vd: Python, Java, Excel)…" value={skill} onChange={e => setSkill(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} />
+            ? <input style={s.input} placeholder="Tìm tên công việc…" value={keyword} onChange={e => setKeyword(e.target.value)} />
+            : <input style={s.input} placeholder="Kỹ năng (vd: Python, Java, Excel)…" value={skill} onChange={e => setSkill(e.target.value)} />
           }
           <select style={s.select} value={catGroup} onChange={e => setCatGroup(e.target.value)}>
             <option value="">Tất cả nhóm ngành</option>
@@ -369,6 +391,21 @@ function JobsTab() {
           : <div style={{ fontSize: 12, color: '#e67e22' }}>Scatter-gather — Task Count: 4 (4 workers song song)</div>
         }
       </div>
+
+      {algTimes.length > 0 && (
+        <div style={s.card}>
+          <h3 style={s.ctitle}>So sánh tốc độ truy vấn</h3>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {algTimes.map(t => (
+              <div key={t.algorithm} style={{ flex: '1 1 140px', background: '#f7f9fc', borderRadius: 8, padding: '14px 16px', textAlign: 'center', border: '1px solid #e4e7ed' }}>
+                <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>{ALG_LABELS[t.algorithm] ?? t.algorithm}</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: '#1a3c5e' }}>{t.ms} ms</div>
+                <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>{t.workers} workers · {t.tasks} tasks</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={s.card}>
         {error && <div style={s.err}>{error}</div>}
@@ -773,6 +810,7 @@ export default function App() {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           <span style={s.badge}>Hash Join</span>
+          <span style={s.badge}>Query Routing</span>
           <span style={s.badge}>MapReduce</span>
           <span style={s.badge}>Top-K</span>
           <span style={s.badge}>Semi-Join</span>

@@ -1,33 +1,3 @@
--- =============================================================================
--- FILE: 01_hash_join.sql
--- Thuật toán: Parallel Hash Join (Co-located)
---
--- Nguyên lý:
---   core, detail, skills cùng distribution key (category_group) và cùng
---   co-location group (thiết lập trong 02_distribute.sql). Mỗi worker giữ
---   shard của cả 3 bảng cho cùng 1 group.
---
---   Khi JOIN 3 bảng, Citus gửi sub-query xuống từng worker; worker tự thực
---   hiện Hash Join cục bộ:
---     Build phase : nạp bảng nhỏ hơn (detail hoặc skills) vào hash table
---                   trong bộ nhớ, key = (category_group, job_id)
---     Probe phase : quét bảng lớn (core), tra hash table tìm match
---   Coordinator chỉ nhận kết quả đã join — không có network shuffle
---   giữa các worker (zero cross-node data transfer).
---
---   Ghi chú Citus: LANGUAGE SQL function có tham số trên distributed table
---   không được hỗ trợ (lỗi "parameterized queries not supported").
---   Tất cả function phải dùng LANGUAGE plpgsql với RETURN QUERY.
--- =============================================================================
-
-
--- =============================================================================
--- VIEW: v_jobs_full
--- -----------------------------------------------------------------------------
--- Kết hợp đầy đủ thông tin từ 3 bảng phân mảnh dọc (core + detail + skills).
--- Citus sinh 4 sub-task song song — mỗi worker Hash Join 3 shard cục bộ,
--- coordinator UNION ALL kết quả. Dùng làm base cho báo cáo cần join đầy đủ.
--- =============================================================================
 CREATE OR REPLACE VIEW v_jobs_full AS
     SELECT
         c.job_id,
@@ -53,17 +23,6 @@ CREATE OR REPLACE VIEW v_jobs_full AS
     JOIN skills  s USING (category_group, job_id);
 
 
--- =============================================================================
--- FUNCTION: hash_join_search
--- -----------------------------------------------------------------------------
--- Tìm kiếm việc làm với thông tin đầy đủ bằng co-located Hash Join.
--- Citus routing:
---   p_category_group NOT NULL → shard pruning: 1 sub-task (1 worker)
---   p_category_group NULL     → broadcast: 4 sub-tasks song song
---
--- Dùng plpgsql thay vì SQL vì Citus không hỗ trợ parameterized SQL functions
--- trên distributed tables. plpgsql evaluate tham số trước khi gửi query.
--- =============================================================================
 CREATE OR REPLACE FUNCTION hash_join_search(
     p_category_group INTEGER DEFAULT NULL,
     p_location       TEXT    DEFAULT NULL,
@@ -84,8 +43,6 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql STABLE AS $$
 BEGIN
-    -- USING (category_group, job_id) là điều kiện bắt buộc để Citus
-    -- nhận ra co-location và không sinh thêm Repartition node.
     RETURN QUERY
         SELECT
             c.job_id,
@@ -110,13 +67,6 @@ END;
 $$;
 
 
--- =============================================================================
--- FUNCTION: hash_join_job_detail
--- -----------------------------------------------------------------------------
--- Tra cứu thông tin chi tiết 1 công việc theo primary key.
--- category_group bắt buộc để Citus prune về đúng 1 worker chứa shard.
--- Hash join xảy ra tức thì vì hash table chỉ có 1 row (PK lookup).
--- =============================================================================
 CREATE OR REPLACE FUNCTION hash_join_job_detail(
     p_job_id         INTEGER,
     p_category_group INTEGER
@@ -159,15 +109,6 @@ END;
 $$;
 
 
--- =============================================================================
--- DEMO 1: EXPLAIN — Hash Join song song (Task Count: 8, không pruning)
--- -----------------------------------------------------------------------------
--- Kỳ vọng:
---   "Custom Scan (Citus Adaptive)" ở top node
---   "Task Count: 8"  — 8 shard trên 4 workers (chỉ 4 shard có data)
---   Mỗi task: "Merge Join" hoặc "Hash Join" trên (category_group, job_id)
---   Không có "Redistribute" hay "Repartition" node
--- =============================================================================
 EXPLAIN (COSTS OFF)
 SELECT c.job_id, c.job_title, c.salary_avg,
        d.description, s.technical_skills
@@ -178,11 +119,6 @@ SELECT c.job_id, c.job_title, c.salary_avg,
  LIMIT 10;
 
 
--- =============================================================================
--- DEMO 2: EXPLAIN — Hash Join + shard pruning (Task Count: 1)
--- -----------------------------------------------------------------------------
--- Thêm category_group = 2 → Citus tính hash(2) → chỉ shard trên worker2
--- =============================================================================
 EXPLAIN (COSTS OFF)
 SELECT c.job_id, c.job_title, c.salary_avg,
        d.description, s.technical_skills
@@ -194,20 +130,9 @@ SELECT c.job_id, c.job_title, c.salary_avg,
  LIMIT 10;
 
 
--- =============================================================================
--- CHẠY THỬ: 5 công việc nhóm tech tại Hà Nội
--- =============================================================================
 SELECT * FROM hash_join_search(2, 'Hà Nội', 5);
 
 
--- =============================================================================
--- VERIFY: kiểm tra số dòng join khớp với core
--- -----------------------------------------------------------------------------
--- JOIN category_mapping trên cm.category = c.category (1-to-1 match).
--- Không dùng cm.category_group = c.category_group vì sẽ nhân bản dòng
--- theo số category trong mỗi group (3-5 dòng / group).
--- Kỳ vọng: joined_rows = số dòng core cho từng (category_group, location).
--- =============================================================================
 SELECT
     c.category_group,
     cm.group_name,

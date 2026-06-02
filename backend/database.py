@@ -275,6 +275,18 @@ async def query_shard_placement() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def explain_execution_time(sql: str) -> float:
+    """Chạy EXPLAIN ANALYZE và trả về Execution Time (ms) mà PostgreSQL báo.
+    Dùng để đối chiếu độc lập với wall-clock time của perf_counter."""
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(f"EXPLAIN (ANALYZE, COSTS OFF, TIMING ON) {sql}")
+    for row in rows:
+        line: str = row[0]
+        if "Execution Time:" in line:
+            return float(line.split("Execution Time:")[1].replace("ms", "").strip())
+    return 0.0
+
+
 async def query_data_distribution() -> list[dict]:
     """Phân bố số bản ghi theo (category_group, location) — verify shard balance."""
     async with _pool.acquire() as conn:
